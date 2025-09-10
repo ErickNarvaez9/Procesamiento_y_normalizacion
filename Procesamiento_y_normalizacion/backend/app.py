@@ -13,30 +13,48 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONT_DIR = os.path.join(BASE_DIR, "..", "frontend")
 
 app = Flask(__name__, static_url_path="", static_folder=FRONT_DIR)
-CORS(app)  # te permite probar desde 5500
+CORS(app)  # permite front y API en el mismo servicio (Render)
 
 X_PATH = os.path.join(BASE_DIR, "X.npy")
 Y_PATH = os.path.join(BASE_DIR, "y.npy")
 ALFABETO_NORM_PATH = os.path.join(BASE_DIR, "alfabeto_normalizado.json")
 
+# ----------------- util -----------------
 def load_xy():
     X = np.load(X_PATH)                       # (N, D)
     y = np.load(Y_PATH, allow_pickle=True)    # vector de letras (strings)
     return X, y
 
-# ----------------- util -----------------
-
 def _norm_case_equal(vec_str, value):
-    """
-    Compara de forma case-insensitive: np.char.lower(vec) == value.lower()
-    """
+    """Comparación case-insensitive: np.char.lower(vec) == value.lower()"""
     if value is None:
         return None
     v = str(value).strip().lower()
     return np.char.lower(vec_str.astype(str)) == v
 
-# ----------------- API ------------------
+def _load_alfabeto_json():
+    try:
+        with open(ALFABETO_NORM_PATH, "r", encoding="utf-8") as f:
+            registros = json.load(f)
+    except FileNotFoundError:
+        registros = []
+    # normaliza campos mínimos y parsea landmarks si vienen como string
+    out = []
+    for r in registros:
+        lm = r.get("landmarks")
+        if isinstance(lm, str):
+            try:
+                lm = json.loads(lm)
+            except Exception:
+                lm = []
+        out.append({
+            "nombre_secuencia": str(r.get("nombre_secuencia", "")).upper(),
+            "landmarks": lm,
+            "normalizado": bool(r.get("normalizado", True)),
+        })
+    return out
 
+# ----------------- API existente ------------------
 @app.get("/letras")
 def letras_endpoint():
     _, y = load_xy()
@@ -74,17 +92,16 @@ def coords_endpoint():
     Coordenadas normalizadas para la letra (JSON + pequeño análisis).
     """
     letter = request.args.get("letter")
-    with open(ALFABETO_NORM_PATH, "r", encoding="utf-8") as f:
-        registros = json.load(f)
+    registros = _load_alfabeto_json()
 
     coords = []
     sample = None
     count = 0
-    tgt = (letter or "").strip().lower()
+    tgt = (letter or "").strip().upper()
 
     for r in registros:
-        if str(r.get("nombre_secuencia", "")).strip().lower() == tgt:
-            pts = json.loads(r["landmarks"])  # lista [{x,y},...]
+        if r["nombre_secuencia"] == tgt:
+            pts = r["landmarks"]  # lista [{x,y},...]
             coords.extend(pts)
             count += 1
             if sample is None:
@@ -131,7 +148,6 @@ def metrics_endpoint():
     accuracy = float(report.get("accuracy", 0.0))
 
     if letter and letter not in ("ALL", "TODAS"):
-        # Busca la clave exacta del report sin importar mayúsculas
         key = None
         for k in report.keys():
             if k.lower() == str(letter).lower():
@@ -150,26 +166,26 @@ def metrics_endpoint():
         r = float(report["macro avg"]["recall"])
         f1 = float(report["macro avg"]["f1-score"])
 
-    # Silhouette sobre y_pred
+    # Silhouette sobre y_pred (labels)
     try:
         sil_global = float(silhouette_score(X, y_pred))
         if letter and letter not in ("ALL", "TODAS"):
             mask = _norm_case_equal(y, letter)
-            sil_samples = silhouette_samples(X, y_pred)
-            sil_letter = float(sil_samples[mask].mean()) if mask.any() else None
+            sil_samples_vec = silhouette_samples(X, y_pred)
+            sil_letter = float(sil_samples_vec[mask].mean()) if mask.any() else None
         else:
             sil_letter = None
     except Exception:
         sil_global, sil_letter = None, None
 
     # Proxy Fisher
-    def fisher_proxy(X, labels):
+    def fisher_proxy(Xarr, labels):
         classes = np.unique(labels)
         if len(classes) < 2:
             return None
-        centroids = np.vstack([X[labels == c].mean(axis=0) for c in classes])
+        centroids = np.vstack([Xarr[labels == c].mean(axis=0) for c in classes])
         sb = np.var(centroids, axis=0).mean()
-        sw = np.mean([X[labels == c].var(axis=0).mean() for c in classes])
+        sw = np.mean([Xarr[labels == c].var(axis=0).mean() for c in classes])
         return float(sb / (sw + 1e-8))
     fisher = fisher_proxy(X, y_pred)
 
@@ -193,7 +209,6 @@ def metrics_endpoint():
     )
 
 # ----------------- FRONT -----------------
-
 @app.get("/")
 def root():
     return send_from_directory(app.static_folder, "index.html")
@@ -203,5 +218,49 @@ def static_files(path):
     # permite /script.js, /style.css, /img/...
     return send_from_directory(app.static_folder, path)
 
+# ----------------- API v1 (nueva) -----------------
+@app.get("/api/v1/alfabeto")
+def api_alfabeto():
+    return jsonify(_load_alfabeto_json())
+
+@app.get("/api/v1/letras")
+def api_letras():
+    _, y = load_xy()
+    letras = sorted(list(np.unique(y.astype(str))))
+    return jsonify(letras)
+
+@app.post("/api/v1/vector")
+def api_vector():
+    body = request.get_json(silent=True) or {}
+    letra = str(body.get("letra", "")).strip().upper()
+    if not letra:
+        return jsonify(error="letra requerida"), 400
+    for r in _load_alfabeto_json():
+        if r["nombre_secuencia"] == letra:
+            return jsonify(vector=r["landmarks"], normalizado=r["normalizado"])
+    return jsonify(error="no existe"), 404
+
+@app.get("/api/v1/health")
+def api_health():
+    ok_front = os.path.exists(os.path.join(FRONT_DIR, "index.html"))
+    ok_X = os.path.exists(X_PATH)
+    ok_y = os.path.exists(Y_PATH)
+    ok_json = os.path.exists(ALFABETO_NORM_PATH)
+    return jsonify(ok=True, front=ok_front, has_X=ok_X, has_y=ok_y, has_json=ok_json)
+
+# ---- Compatibilidad con nombres antiguos (por si tu JS viejo los llama) ----
+@app.get("/alfabeto_normalizado.json")
+def old_alfabeto_json():
+    return api_alfabeto()
+
+@app.post("/vector_por_letra")
+def old_vector_por_letra():
+    return api_vector()
+
+# ----------------- Run local / Render -----------------
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    debug = os.getenv("FLASK_ENV", "").lower() == "development"
+    app.run(debug=debug, host="0.0.0.0", port=port)
+
+

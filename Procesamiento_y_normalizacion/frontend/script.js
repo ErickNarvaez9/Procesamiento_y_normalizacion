@@ -1,15 +1,17 @@
-// ==== Detectar base de API ====
-// Si la página NO está en 5000 (por ej. Live Server 5500), usa 5000 explícito.
-const API_BASE = (location.port === "5000") ? "" : "http://127.0.0.1:5000";
+// ===================== Detectar base de API =====================
+// - En Render (o cualquier dominio != localhost) => mismo origen: "".
+// - En local: si estás en Live Server (p.ej., 5500), apunta al backend 5000.
+const isLocalhost = ["localhost", "127.0.0.1"].includes(location.hostname);
+const API_BASE = (isLocalhost && location.port !== "5000") ? "http://127.0.0.1:5000" : "";
 
-// DOM
+// ===================== DOM =====================
 const elSel  = document.getElementById("selLetra");
 const elPca  = document.getElementById("pcaCanvas");
 const ctx    = elPca.getContext("2d");
 const elJSON = document.getElementById("coordsJson");
 const elBox  = document.getElementById("analysisBox");
 
-// ---------- utils ----------
+// ===================== utils =====================
 function setVal(sel, v){
   const e = document.querySelector(sel);
   if(!e) return;
@@ -32,21 +34,23 @@ function sanitizePoints(arr){
   return out;
 }
 
-function drawPoints(points, radius = 6){
-  const pts = sanitizePoints(points);        // <-- corrección necesaria
+function drawGrid(){
   const W = elPca.width, H = elPca.height;
   ctx.clearRect(0,0,W,H);
-
-  // grid suave
   ctx.strokeStyle = "rgba(0,0,0,.07)";
   for(let i=1;i<5;i++){
     const x = (W/5)*i, y = (H/5)*i;
     ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, H-10); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(10, y); ctx.lineTo(W-10, y); ctx.stroke();
   }
+}
 
-  if(!pts.length) return; // si no hay datos válidos, deja solo la grilla
+function drawPoints(points, radius = 6){
+  const pts = sanitizePoints(points);
+  drawGrid();
+  if(!pts.length) return;
 
+  const W = elPca.width, H = elPca.height;
   ctx.fillStyle = "#2B6FF9";
   ctx.strokeStyle = "rgba(5,28,63,.25)";
   for(const p of pts){
@@ -65,13 +69,41 @@ async function jget(path){
   return r.json();
 }
 
-// ---------- cargas ----------
+// ===================== cargas =====================
+// 1) Letras con fallbacks: /api/v1/letras -> /letras -> /api/v1/alfabeto
 async function loadLetters(){
-  const { letras } = await jget("/letras");
-  const uniq = [...new Set(letras)].sort();
-  elSel.innerHTML = uniq.map(l => `<option value="${l}">${String(l).toUpperCase()}</option>`).join("");
-}
+  let letras = null;
 
+  // A) /api/v1/letras (devuelve array plano)
+  try {
+    const res = await jget("/api/v1/letras");
+    if (Array.isArray(res)) letras = res;
+  } catch {}
+
+  // B) /letras (tu endpoint actual; devuelve { letras: [...] })
+  if (!letras) {
+    try {
+      const { letras: arr } = await jget("/letras");
+      if (Array.isArray(arr)) letras = arr;
+    } catch {}
+  }
+
+  // C) /api/v1/alfabeto (derivar letras desde objetos)
+  if (!letras) {
+    try {
+      const data = await jget("/api/v1/alfabeto");
+      if (Array.isArray(data)) {
+        letras = [...new Set(data.map(d => String(d.nombre_secuencia).toUpperCase()))];
+      }
+    } catch {}
+  }
+
+  if (!letras) throw new Error("No se pudo cargar el catálogo de letras.");
+
+  const uniq = [...new Set(letras.map(l => String(l).toUpperCase()))].sort();
+  // opcional: añade "Seleccione…"
+  elSel.innerHTML = uniq.map(l => `<option value="${l}">${l}</option>`).join("");
+}
 
 async function loadPCA(letter){
   const { points } = await jget(`/pca?letter=${encodeURIComponent(letter)}`);
@@ -92,17 +124,16 @@ async function loadMetrics(letter){
 
 async function loadCoords(letter){
   const { points, analysis } = await jget(`/coords?letter=${encodeURIComponent(letter)}`);
-
-  // guardamos las coords ya saneadas (para evitar NaN/valores fuera de [0,1])
-  const ptsOK = sanitizePoints(points);      // <-- corrección necesaria
-  elJSON.value = JSON.stringify(ptsOK, null, 2);
+  const ptsOK = sanitizePoints(points);
+  if (elJSON) elJSON.value = JSON.stringify(ptsOK, null, 2);
 
   if(!analysis || !analysis.centroid){
-    elBox.innerHTML = `<div class="card-mini"><span class="muted">Sin datos para la letra seleccionada.</span></div>`;
+    if (elBox) elBox.innerHTML = `<div class="card-mini"><span class="muted">Sin datos para la letra seleccionada.</span></div>`;
     return;
   }
+
   const { centroid, radial, svd, points:totalPts, inside01 } = analysis;
-  elBox.innerHTML = `
+  if (elBox) elBox.innerHTML = `
     <div class="card-mini">
       <div><b>Centroide:</b> (${centroid[0].toFixed(3)}, ${centroid[1].toFixed(3)})</div>
       <div><b>Radial</b> μ=${radial.mean.toFixed(3)}, σ=${radial.std.toFixed(3)}, min=${radial.min.toFixed(3)}, max=${radial.max.toFixed(3)}</div>
@@ -112,11 +143,13 @@ async function loadCoords(letter){
     </div>`;
 }
 
-// ---------- init ----------
+// ===================== init =====================
 async function init(){
   try{
-    await loadLetters();           // llena el select
-    const letter = elSel.value;    // primera letra
+    drawGrid();
+    await loadLetters();                     // llena el select
+    const letter = elSel.value || "";        // primera letra
+    if (!letter) return;
     await Promise.all([
       loadPCA(letter),
       loadMetrics(letter),
@@ -130,6 +163,7 @@ async function init(){
 
 elSel.addEventListener("change", async e=>{
   const letter = e.target.value;
+  if (!letter) return;
   try{
     await Promise.all([
       loadPCA(letter),
@@ -143,3 +177,5 @@ elSel.addEventListener("change", async e=>{
 });
 
 window.addEventListener("DOMContentLoaded", init);
+
+

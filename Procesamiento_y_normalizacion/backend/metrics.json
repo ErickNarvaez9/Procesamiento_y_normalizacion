@@ -1,0 +1,26 @@
+{
+  "accuracy": 0.9666666666666667,
+  "precision_macro": 0.9166666666666666,
+  "recall_macro": 0.9444444444444444,
+  "f1_macro": 0.9259259259259258,
+  "silhouette": 0.656014084815979,
+  "fisher_global": NaN,
+  "latency_ms_p50": 0.029200000426499173,
+  "latency_ms_p95": 0.06877500345581211,
+  "samples": 156,
+  "dim": 42,
+  "split_info": {
+    "total_samples": 156,
+    "total_classes": 25,
+    "classes_ok_count": 19,
+    "classes_single_count": 6,
+    "classes_single": [
+      "y",
+      "w",
+      "p",
+      "l",
+      "k",
+      "e"
+    ]
+  }
+}

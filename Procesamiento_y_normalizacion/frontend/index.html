@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Visualizador de Letras en LSE</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+
+    <!-- CARD 1: Encabezado + selector + PCA -->
+    <div class="card">
+      <div class="card-header">
+        <div class="brand">
+          <img src="img/logo_facultad.png" alt="Logo Facultad">
+        </div>
+        <h1 class="title">Visualizador de Letras en LSE</h1>
+      </div>
+
+      <div class="ctrl-row">
+        <label for="selLetra">Letra:</label>
+        <select id="selLetra"></select>
+      </div>
+
+      <div class="card-body">
+        <h3 class="section-title">Mapa 2D de embeddings (PCA)</h3>
+        <canvas id="pcaCanvas" width="1100" height="340"></canvas>
+      </div>
+    </div>
+
+    <!-- CARD 2: Métricas -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="title" style="font-size:20px">Métricas</h3>
+      </div>
+      <div class="card-body">
+        <table class="metrics-table">
+          <tr><td>Accuracy</td>           <td id="m_acc">-</td></tr>
+          <tr><td>Precisión</td>          <td id="m_prec">-</td></tr>
+          <tr><td>Recall</td>             <td id="m_rec">-</td></tr>
+          <tr><td>F1</td>                 <td id="m_f1">-</td></tr>
+          <tr><td>Silhouette</td>         <td id="m_sil">-</td></tr>
+          <tr><td>Fisher global</td>      <td id="m_fisher">-</td></tr>
+          <tr><td>Latencia P50 (ms)</td>  <td id="m_p50">-</td></tr>
+          <tr><td>Latencia P95 (ms)</td>  <td id="m_p95">-</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- CARD 3: Coordenadas + Análisis -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="title" style="font-size:20px">Coordenadas normalizadas (letra seleccionada)</h3>
+      </div>
+      <div class="card-body">
+        <div class="coords-wrap">
+          <textarea id="coordsJson" spellcheck="false">[]</textarea>
+          <div id="analysisBox">
+            <!-- se inserta desde script.js -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -4,3 +4,5 @@ numpy==1.26.4
 scikit-learn==1.4.2
 qdrant-client==1.9.1
 python-dotenv==1.0.1
+gunicorn==21.2.0
+
